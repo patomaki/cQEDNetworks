@@ -1,22 +1,36 @@
 (* ::Package:: *)
 
  BeginPackage["cQEDNetworks`"];
-UnsrtCountMatch::usage="Returns the number of list1-elements, which also are list2-elements.";
-UnsrtMatchQ::usage="Returns true if (unsorted) list1 and list2 contain the same elements, false otherwise.";
-UnsrtSubsetQ::usage="Returns true if (unsorted) list2 is a subset of list2.";
-OrientEdge::usage="Return +1 if the edge (ei) is oriented in the same direction as the cycle (cn,ce), and -1 if the edge is oriented to the opposite direction.";
-PossibleEdges::usage="Finds a list of edges (i.e. branches) which connect to a connected sequence of edges (se0) and associated nodes (s0), within a list of edges (edges, a list of node-pairs).";
-AppendSequence::usage="Adds new nodes and edges (i.e. branches) to a connected sequence of nodes (s0), and associated edges (se0), according to possible edges (pe0), returns the appended sequence {seq,sedges}";
-FindCycles::usage="Returns a list of cycles (i.e. loops) in the form {{c1nodes,c1edges},{c2nodes,c2edges},...}. The list includes all the cycles of the graph.";
-FindAllCycles::usage="Return a list of all cycles {cnodes,cedges} of a graph (g).";
-FindSpanningTree::usage="Returns a list of spanning trees (lists of branches), starting from branch bstart. Note that this functions does not find all the spanning trees of the graph.";
-CospanningTree::usage="Returns a co-spanning tree corresponding to spanning tree (stree).";
-FundamentalCycles::usage="Find fundamental cycles, given a spanning tree (stree)";
-ClassifyNodes::usage="Classify a set of nodes in a graph as either passive, active or ground. Ground nodes are recognized from branch name (b), passive nodes are only connected to capacitive edges (btype). The rest of the nodes are active.";
-ReduceBranchVariables::usage="Return a list of solutions to Kirchoff's voltage equations, given a list of branch variables (Phi), redundant branch variables (rPhi), Incidence matrix (IM), spanning tree (stree), graph (g), and all cycles (allcycles)";
-SolveNodeVariables::usage="Return a list of solutions to Kirchhoff's current equations, given dynamical branch variables (dPhi), branch variables (Phi), node variables (phi), incidence matrix (IM).";
-CapacitiveEnergy::usage="Return capacitive energy for a given branch variable (Phi) and capacitance (bC).";
+MatchVector::usage="Returns a vector of zeros (for non-matching elements of v1, v2) and ones (for matching elements of v1, v2).\nInput (2): vector; vector (they must be of equal length)";
+UnsrtCountMatch::usage="Returns the number of list1-elements, which also are list2-elements.\nInput (2): list1 (reference); list2.";
+UnsrtMatchQ::usage="Returns true if (unsorted) list1 and list2 contain the same elements, false otherwise.\nInput (2):list1; list2.";
+UnsrtSubsetQ::usage="Returns true if (unsorted) list2 is a subset of list2.\nInput (2): list1; list2";
+OrientEdge::usage="Return +1 if the edge (ei) is oriented in the same direction as the cycle, and -1 if the edge is oriented to the opposite direction.\nInput (4): incidence matrix; list of cycle nodes; list of cycle edges; edge index";
+PossibleEdges::usage="Finds a list of edges which connect to a connected sequence of edges, and associated nodes, within a list of edges.\nInput (3): graph-edge-list; a node-sequence; an edge-sequence.";
+AppendSequence::usage="Adds new nodes and edges (i.e. branches) to a connected sequence of nodes (s0), and associated edges (se0), according to possible edges (pe0), returns the appended sequence {seq,sedges}.\nInput (4): list of edges; node sequence; edge sequence; list of edges that are connected to the sequence (see PossibleEdges)";
+FindCycles::usage="Returns a list of cycles (i.e. loops) in the form {{c1nodes,c1edges},{c2nodes,c2edges},...}. The list includes all the cycles of the graph.\nInput (7): list of nodes; list of edges; list of current nodes in a sequence (can be empty); list of current edges in a sequence (can be empty); list of nodes of found cycles (can be empty); list of edges of found cycles (can be empty); depth (one or larger)";
+FindAllCycles::usage="Return a list of all cycles {cnodes,cedges} of a graph.\nInput (1): graph object";
+FindSpanningTree::usage="Returns a list of spanning trees (lists of branches), starting from branch bstart. Note that this functions does not find all the spanning trees of the graph.\nInput (3): the index of the starting branch; graph object; list of all cycles (elements in the form {cn,ce})";
+CospanningTree::usage="Returns a co-spanning tree corresponding to spanning tree.\nInput (2): spanning tree; branch-list";
+FundamentalCycles::usage="Find fundamental cycles, given a spanning tree (stree).\nInput (3): spanning tree; co-spanning tree; graph object";
+ClassifyNodes::usage="Classify a set of nodes in a graph as either passive, active or ground. Ground nodes are recognized from branch name (b), passive nodes are only connected to capacitive edges (btype). The rest of the nodes are active.\nInput (4): branch-list; branch-type-list (types: C (capacitive),L (inductive),J (josephson junction,inductive),W (wire)); node list; incidence matrix";
+ReduceBranchVariables::usage="Return a list of solutions to Kirchoff's voltage equations.\nInput (6): list of branch variables; redundant branch variables (to solve for); incidence matrix; spanning tree; graph object; and all cycles (elements in the form {cnodes,cedges})";
+SolveNodeVariables::usage="Return a list of solutions to Kirchhoff's current equations\nInput (4): branch-variable-list; dynamical-branch-variable-list (to solve for); node-variable-list ; indicence matrix";
+CapacitiveEnergy::usage="Return capacitive energy.\nInput (2): branch flux; capacitance at the branch (all components are assumed to be two-port)";
 Begin["Private`"];
+MatchVector[v1_List,v2_List]:=Module[{vmatch},
+  If[Length[v1]!=Length[v2],
+    Print["Error: Length of input vectors is not equal. Exiting."];
+    Return[{}];,
+	vmatch=Table[0,{i,1,Length[v1]}];
+    Do[
+	  If[v1[[i]]==v2[[i]],
+	    vmatch[[i]]=1;
+	  ];
+    ,{i,1,Length[v1]}];
+    Return[vmatch];
+  ];
+];
 UnsrtCountMatch[list10_List,list20_List]:=Module[{positions,list1=list10,list2=list20,debug=False},
 (*list1 is the reference set*)
 (*list2 is the trial set*)
@@ -193,13 +207,19 @@ Do[
 ,{i,1,ncycles}];
 allcycles
 ];
-FindSpanningTree[bstart_,b_List,allcycles_,len_]:=Module[{boffset,tree,containsc,debug=False},
-boffset=Table[If[i+bstart-1==Length[b],Length[b],Mod[i+bstart-1,Length[b]]],{i,1,Length[b]}];
+FindSpanningTree[bstart_,g_,allcycles_]:=Module[{b,n,IM,len,boffset,tree,ntree,containsc,e1,e2,v,z,secondn,firstn,debug=False},
+b =EdgeList[g];(*list of node-pairs*)
+n =VertexList[g];
+IM=Normal[IncidenceMatrix[g]];
+len=Length[b]-Length[n]+1;
+boffset=Table[If[i+bstart-1==Length[b],Length[b],Mod[i+bstart-1,Length[b]]],{i,1,Length[b]}];(*list of indices*)
 tree={};
+ntree={};
 Do[
   containsc=False;
   If[Length[tree]==0,
-    tree=Append[tree,bi];,
+    tree=Append[tree,bi];
+	ntree=Append[ntree,b[[bi]]];,
     If[Length[tree]<Length[b]-len,
 	If[debug,Print["branch=",bi]];
       Do[
@@ -212,13 +232,16 @@ Do[
 		  Break[]
 		];
       ,{i,1,Length[allcycles]}];
-      If[!containsc,tree=Append[tree,bi]];
+      If[!containsc,
+		tree=Append[tree,bi];
+		ntree=Append[ntree,b[[bi]]];
+	  ];
     ];
   ];
 ,{bi,boffset}];
 If[Length[tree]==Length[b]-len,
   If[debug,Print["Found a spanning tree with the edges: tree=",tree]];
-  Return[tree]
+  Return[{ntree,tree}]
 ];
 ];
 CospanningTree[stree_,b_]:=Module[{costree,bi},
@@ -231,17 +254,23 @@ Do[
 ,{i,bi}];
 costree
 ];
-FundamentalCycles[stree_,costree_,allcycles_,nKirchhoffV_]:=Module[{fcycles,nc,},
+FundamentalCycles[stree_,costree_,g_]:=Module[{allcycles,b,n,nKirchhoffV,fcycles,nc},
+allcycles=FindAllCycles[g];
+b=EdgeList[g];
+n=VertexList[g];
+nKirchhoffV=Length[b]-Length[n]+1;
 nc=0;
 fcycles={};
 Do[
-  If[nc>=nKirchhoffV,
-    Break[],
-    If[UnsrtSubsetQ[Append[stree,costree[[nc+1]]],allcycles[[All,2]][[i]]],
+  Do[
+  (*If[nc>=nKirchhoffV,
+    Break[],*)
+    If[UnsrtSubsetQ[Append[stree,costree[[j]]],allcycles[[All,2]][[i]]]&&Length[fcycles]<=nKirchhoffV,
       nc=nc+1;
       fcycles=Append[fcycles,{allcycles[[All,1]][[i]],allcycles[[All,2]][[i]]}];
     ];
-  ];
+  (*];*)
+  ,{j,1,Length[costree]}];
 ,{i,1,Length[allcycles]}];
 fcycles
 ];
@@ -268,7 +297,7 @@ b=EdgeList[g];
 n=VertexList[g];
 nKirchhoffV=Length[b]-Length[n]+1;
 costree=CospanningTree[stree,b];
-fcycles=FundamentalCycles[stree,costree,allcycles,nKirchhoffV];
+fcycles=FundamentalCycles[stree,costree,g];
 Vequations={};
 Do[
   cn=fcycles[[All,1]][[i]];
@@ -283,7 +312,7 @@ Do[
 sols=Solve[Flatten[Vequations],rPhi];
 Return[sols]
 ];
-SolveNodeVariables[dPhi_,Phi_,phi_,IM_]:=Module[{Iequations,sum,nlist,o,sols},
+SolveNodeVariables[Phi_,dPhi_,phi_,IM_]:=Module[{Iequations,sum,nlist,o,sols},
 Iequations={};
 Do[
   If[Length[Position[dPhi,Phi[[bi]]]]>0,
@@ -301,7 +330,6 @@ Do[
   ];
 ,{bi,1,Length[Phi]}];
 sols=Solve[Flatten[Iequations],dPhi];
-Print["sols=",sols];
 sols
 ];
 CapacitiveEnergy[Phi_,bC_]:=bC*Phi'*Phi'/2;
